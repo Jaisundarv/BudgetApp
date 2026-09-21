@@ -252,58 +252,63 @@ dialog h2 { font-size: 16px; margin-bottom: 12px; }
 .category-form-grid { display: grid; grid-template-columns: 2fr 1fr auto auto; gap: 6px; align-items: center; }
 input[type="color"] { padding: 2px; width: 40px; height: 34px; }
 
-/* ---- Recurring ---- */
-.recurring-banner {
-  background: var(--surface-alt);
-  border: 1px dashed var(--accent);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-bottom: 16px;
-}
-.recurring-banner-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.recurring-banner-head .btn { padding: 6px 12px; font-size: 12px; }
-.recurring-chip-list {
-  list-style: none;
-  margin: 10px 0 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.chip {
+/* ---- Standard expenses ---- */
+.standard-section {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--text);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 20px;
 }
-.chip:hover { border-color: var(--accent); }
+.standard-section h3 { font-size: 14px; color: var(--text-muted); margin-bottom: 10px; }
+.standard-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.standard-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.standard-row.is-paid { opacity: 0.65; }
+.standard-name { flex: 1; font-size: 13px; font-weight: 600; }
+.standard-amount { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-muted); }
+.paid-toggle {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.paid-toggle.paid { background: var(--income); border-color: var(--income); color: #fff; }
+.paid-toggle.unpaid { background: var(--surface); color: var(--expense); border-color: var(--expense); }
+
+.standard-totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.standard-totals > div { display: flex; flex-direction: column; gap: 2px; }
+.standard-totals .label { color: var(--text-muted); font-size: 11px; }
+.standard-totals span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
+.paid-color { color: var(--income); }
+.unpaid-color { color: var(--expense); }
 
 .dialog-hint { font-size: 12px; color: var(--text-muted); margin: -6px 0 12px; }
-.recurring-form-grid {
+.standard-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-.recurring-form-grid .full { grid-column: 1 / -1; }
-.recurring-form-grid select,
-.recurring-form-grid input { width: 100%; }
-.day-field {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.day-field input { width: 70px; }
+.standard-form-grid .full { grid-column: 1 / -1; }
+.standard-form-grid select,
+.standard-form-grid input { width: 100%; }
 
 #errorBanner {
   background: var(--expense);

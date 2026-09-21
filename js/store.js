@@ -30,7 +30,13 @@ function defaultData() {
       { id: uid(), name: "Other", type: "expense", color: "#9a8fc9", monthlyLimit: null }
     ],
     transactions: [],
-    recurring: []
+    // Fixed monthly bills (rent, electricity, insurance...). These are
+    // deliberately NOT categories — they're a small fixed list that
+    // shows up automatically every month with a paid/not-paid state,
+    // separate from the ad-hoc transactions you log and categorize
+    // yourself. A category assignment is optional, only so a paid bill
+    // can still show up correctly in the category breakdown chart.
+    standardExpenses: []
   };
 }
 
@@ -43,6 +49,16 @@ function migrate(data) {
     data.recurring = data.recurring || [];
     data.schemaVersion = 2;
   }
+  if (data.schemaVersion < 3) {
+    // Early "recurring" concept (dropped before real use) becomes the
+    // standing bills list, minus the day-of-month/apply-button model.
+    data.standardExpenses = (data.recurring || []).map(r => ({
+      id: r.id, name: r.name, amount: r.amount, categoryId: r.categoryId ?? null
+    }));
+    delete data.recurring;
+    data.schemaVersion = 3;
+  }
+  if (!data.standardExpenses) data.standardExpenses = [];
   return data;
 }
 
@@ -151,10 +167,10 @@ export function removeCategory(id) {
 
 // ---- Transactions ----
 
-export function addTransaction({ date, amount, categoryId, type, note, recurringId }) {
+export function addTransaction({ date, amount, categoryId, type, note, standardExpenseId }) {
   state.transactions.push({
     id: uid(), date, amount: Number(amount), categoryId, type,
-    note: note || "", recurringId: recurringId || null
+    note: note || "", standardExpenseId: standardExpenseId || null
   });
   scheduleSync();
 }
@@ -171,65 +187,63 @@ export function removeTransaction(id) {
   scheduleSync();
 }
 
-// ---- Recurring expenses/income ----
-// A recurring item is a template ("Rent, €1350, day 1 of month"). It
-// doesn't itself appear in totals — applying it for a given month
-// creates a normal transaction (tagged with recurringId) that does.
+// ---- Standard (fixed monthly) expenses ----
+// A standard expense is a bill whose amount doesn't change month to
+// month — rent, electricity, water, insurance. The list itself
+// (name + amount + optional category) is managed once, in the
+// Standard Expenses dialog. Every month it just shows up, with a
+// paid/not-paid toggle; toggling it creates or removes the matching
+// transaction so your income/expense totals and category chart stay
+// accurate without you re-entering anything.
 
-export function addRecurring({ name, type, categoryId, amount, dayOfMonth }) {
-  state.recurring.push({
-    id: uid(), name, type, categoryId, amount: Number(amount),
-    dayOfMonth: Math.min(31, Math.max(1, Number(dayOfMonth) || 1)),
-    active: true
-  });
+export function addStandardExpense({ name, amount, categoryId }) {
+  state.standardExpenses.push({ id: uid(), name, amount: Number(amount), categoryId: categoryId || null });
   scheduleSync();
 }
 
-export function updateRecurring(id, patch) {
-  const r = state.recurring.find(r => r.id === id);
-  if (!r) return;
-  Object.assign(r, patch);
-  scheduleSync();
-}
-
-export function removeRecurring(id) {
-  state.recurring = state.recurring.filter(r => r.id !== id);
-  scheduleSync();
-}
-
-function dateForRecurring(item, yearMonth) {
-  const [y, m] = yearMonth.split("-").map(Number);
-  const lastDay = new Date(y, m, 0).getDate(); // clamp e.g. day 31 in a 30-day month
-  const day = Math.min(item.dayOfMonth, lastDay);
-  return `${yearMonth}-${String(day).padStart(2, "0")}`;
-}
-
-// Active recurring items that don't yet have a generated transaction
-// for this month.
-export function pendingRecurringForMonth(yearMonth) {
-  const applied = new Set(
-    state.transactions.filter(t => t.recurringId && t.date.startsWith(yearMonth)).map(t => t.recurringId)
-  );
-  return state.recurring.filter(r => r.active !== false && !applied.has(r.id));
-}
-
-export function applyRecurring(id, yearMonth) {
-  const item = state.recurring.find(r => r.id === id);
+export function updateStandardExpense(id, patch) {
+  const item = state.standardExpenses.find(s => s.id === id);
   if (!item) return;
-  addTransaction({
-    date: dateForRecurring(item, yearMonth),
-    amount: item.amount,
-    categoryId: item.categoryId,
-    type: item.type,
-    note: item.name,
-    recurringId: item.id
+  Object.assign(item, patch);
+  scheduleSync();
+}
+
+export function removeStandardExpense(id) {
+  state.standardExpenses = state.standardExpenses.filter(s => s.id !== id);
+  scheduleSync();
+}
+
+// Every standard expense for this month, each annotated with whether
+// it's been paid yet (i.e. a linked transaction exists in that month).
+export function standardExpensesForMonth(yearMonth) {
+  return state.standardExpenses.map(item => {
+    const tx = state.transactions.find(t => t.standardExpenseId === item.id && t.date.startsWith(yearMonth));
+    return { ...item, paid: !!tx, transactionId: tx ? tx.id : null };
   });
 }
 
-export function applyAllRecurring(yearMonth) {
-  for (const item of pendingRecurringForMonth(yearMonth)) {
-    applyRecurring(item.id, yearMonth);
+export function setStandardExpensePaid(id, yearMonth, paid) {
+  const item = state.standardExpenses.find(s => s.id === id);
+  if (!item) return;
+  const existing = state.transactions.find(t => t.standardExpenseId === id && t.date.startsWith(yearMonth));
+
+  if (paid && !existing) {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = today.startsWith(yearMonth) ? today : `${yearMonth}-01`;
+    addTransaction({
+      date, amount: item.amount, categoryId: item.categoryId, type: "expense",
+      note: item.name, standardExpenseId: item.id
+    });
+  } else if (!paid && existing) {
+    removeTransaction(existing.id);
   }
+}
+
+export function standardExpenseTotals(yearMonth) {
+  const items = standardExpensesForMonth(yearMonth);
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  const paid = items.filter(i => i.paid).reduce((s, i) => s + i.amount, 0);
+  return { total, paid, unpaid: total - paid };
 }
 
 // ---- Derived helpers ----
