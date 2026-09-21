@@ -28,6 +28,7 @@
         <h1>Budget</h1>
         <div class="header-actions">
           <span id="syncStatus"></span>
+          <button id="manageRecurringBtn" class="btn secondary">Recurring</button>
           <button id="manageCategoriesBtn" class="btn secondary">Categories</button>
           <button id="signOutBtn" class="btn secondary">Sign out</button>
         </div>
@@ -38,6 +39,8 @@
         <h2 id="monthLabel"></h2>
         <button id="nextMonth" aria-label="Next month">›</button>
       </div>
+
+      <div id="recurringBanner" class="recurring-banner" hidden></div>
 
       <div class="totals-row">
         <div class="total-card income">
@@ -82,6 +85,27 @@
     </section>
   </div>
 
+  <dialog id="recurringDialog">
+    <h2>Recurring expenses &amp; income</h2>
+    <p class="dialog-hint">Set up things that happen every month — rent, subscriptions, your salary. They won't appear in your totals until you add them for a given month, from the reminder banner on the main screen.</p>
+    <ul id="recurringList"></ul>
+    <form id="recurringForm" class="recurring-form-grid">
+      <input type="text" id="recurringName" placeholder="Name (e.g. Rent)" required class="full" />
+      <div class="type-toggle full">
+        <label><input type="radio" name="recurringTypeRadio" value="expense" checked /><span>Expense</span></label>
+        <label><input type="radio" name="recurringTypeRadio" value="income" /><span>Income</span></label>
+      </div>
+      <input type="hidden" id="recurringType" value="expense" />
+      <select id="recurringCategory"></select>
+      <input type="number" id="recurringAmount" placeholder="Amount (€)" step="0.01" min="0" required />
+      <label class="day-field full">Day of month
+        <input type="number" id="recurringDay" min="1" max="31" value="1" required />
+      </label>
+      <button type="submit" class="btn full">Add recurring item</button>
+    </form>
+    <button id="closeRecurringBtn" class="btn secondary" style="margin-top:12px; width:100%;">Done</button>
+  </dialog>
+
   <dialog id="categoriesDialog">
     <h2>Categories</h2>
     <ul id="categoryList"></ul>
@@ -104,6 +128,12 @@
         r.addEventListener("change", () => {
           document.getElementById("txType").value = r.value;
           document.getElementById("txType").dispatchEvent(new Event("change"));
+        });
+      });
+      document.querySelectorAll('input[name="recurringTypeRadio"]').forEach(r => {
+        r.addEventListener("change", () => {
+          document.getElementById("recurringType").value = r.value;
+          document.getElementById("recurringType").dispatchEvent(new Event("change"));
         });
       });
       document.getElementById("txDate").value = new Date().toISOString().slice(0, 10);

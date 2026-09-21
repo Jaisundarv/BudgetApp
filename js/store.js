@@ -29,7 +29,8 @@ function defaultData() {
       { id: uid(), name: "Transport", type: "expense", color: "#6a93c9", monthlyLimit: null },
       { id: uid(), name: "Other", type: "expense", color: "#9a8fc9", monthlyLimit: null }
     ],
-    transactions: []
+    transactions: [],
+    recurring: []
   };
 }
 
@@ -38,8 +39,10 @@ function defaultData() {
 // changing what old data means.
 function migrate(data) {
   if (!data.schemaVersion) data.schemaVersion = 1;
-  // Future migrations go here, e.g.:
-  // if (data.schemaVersion < 2) { ...; data.schemaVersion = 2; }
+  if (data.schemaVersion < 2) {
+    data.recurring = data.recurring || [];
+    data.schemaVersion = 2;
+  }
   return data;
 }
 
@@ -148,8 +151,11 @@ export function removeCategory(id) {
 
 // ---- Transactions ----
 
-export function addTransaction({ date, amount, categoryId, type, note }) {
-  state.transactions.push({ id: uid(), date, amount: Number(amount), categoryId, type, note: note || "" });
+export function addTransaction({ date, amount, categoryId, type, note, recurringId }) {
+  state.transactions.push({
+    id: uid(), date, amount: Number(amount), categoryId, type,
+    note: note || "", recurringId: recurringId || null
+  });
   scheduleSync();
 }
 
@@ -163,6 +169,67 @@ export function updateTransaction(id, patch) {
 export function removeTransaction(id) {
   state.transactions = state.transactions.filter(t => t.id !== id);
   scheduleSync();
+}
+
+// ---- Recurring expenses/income ----
+// A recurring item is a template ("Rent, €1350, day 1 of month"). It
+// doesn't itself appear in totals — applying it for a given month
+// creates a normal transaction (tagged with recurringId) that does.
+
+export function addRecurring({ name, type, categoryId, amount, dayOfMonth }) {
+  state.recurring.push({
+    id: uid(), name, type, categoryId, amount: Number(amount),
+    dayOfMonth: Math.min(31, Math.max(1, Number(dayOfMonth) || 1)),
+    active: true
+  });
+  scheduleSync();
+}
+
+export function updateRecurring(id, patch) {
+  const r = state.recurring.find(r => r.id === id);
+  if (!r) return;
+  Object.assign(r, patch);
+  scheduleSync();
+}
+
+export function removeRecurring(id) {
+  state.recurring = state.recurring.filter(r => r.id !== id);
+  scheduleSync();
+}
+
+function dateForRecurring(item, yearMonth) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate(); // clamp e.g. day 31 in a 30-day month
+  const day = Math.min(item.dayOfMonth, lastDay);
+  return `${yearMonth}-${String(day).padStart(2, "0")}`;
+}
+
+// Active recurring items that don't yet have a generated transaction
+// for this month.
+export function pendingRecurringForMonth(yearMonth) {
+  const applied = new Set(
+    state.transactions.filter(t => t.recurringId && t.date.startsWith(yearMonth)).map(t => t.recurringId)
+  );
+  return state.recurring.filter(r => r.active !== false && !applied.has(r.id));
+}
+
+export function applyRecurring(id, yearMonth) {
+  const item = state.recurring.find(r => r.id === id);
+  if (!item) return;
+  addTransaction({
+    date: dateForRecurring(item, yearMonth),
+    amount: item.amount,
+    categoryId: item.categoryId,
+    type: item.type,
+    note: item.name,
+    recurringId: item.id
+  });
+}
+
+export function applyAllRecurring(yearMonth) {
+  for (const item of pendingRecurringForMonth(yearMonth)) {
+    applyRecurring(item.id, yearMonth);
+  }
 }
 
 // ---- Derived helpers ----

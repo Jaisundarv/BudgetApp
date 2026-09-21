@@ -1,7 +1,7 @@
 // Caches the app shell so it opens instantly and works offline.
 // Budget data itself always comes from Dropbox (or the local cache in
 // store.js), never from this cache.
-const CACHE_NAME = "budget-app-shell-v1";
+const CACHE_NAME = "budget-app-shell-v2";
 const SHELL_FILES = [
   "./",
   "./index.html",

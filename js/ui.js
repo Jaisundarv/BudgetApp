@@ -21,6 +21,14 @@ export function initUI() {
   el("#categoryForm").addEventListener("submit", onAddCategory);
   el("#closeCategoriesBtn").addEventListener("click", () => el("#categoriesDialog").close());
 
+  el("#manageRecurringBtn").addEventListener("click", () => {
+    populateRecurringCategoryOptions();
+    el("#recurringDialog").showModal();
+  });
+  el("#recurringType").addEventListener("change", populateRecurringCategoryOptions);
+  el("#recurringForm").addEventListener("submit", onAddRecurring);
+  el("#closeRecurringBtn").addEventListener("click", () => el("#recurringDialog").close());
+
   store.subscribe(render);
   render();
 }
@@ -70,6 +78,77 @@ function onAddCategory(e) {
   populateCategoryOptions();
 }
 
+function populateRecurringCategoryOptions() {
+  const state = store.getState();
+  if (!state) return;
+  const type = el("#recurringType").value;
+  const select = el("#recurringCategory");
+  select.innerHTML = state.categories
+    .filter(c => c.type === type)
+    .map(c => `<option value="${c.id}">${c.name}</option>`)
+    .join("");
+}
+
+function onAddRecurring(e) {
+  e.preventDefault();
+  const name = el("#recurringName").value.trim();
+  const type = el("#recurringType").value;
+  const categoryId = el("#recurringCategory").value;
+  const amount = parseFloat(el("#recurringAmount").value);
+  const dayOfMonth = parseInt(el("#recurringDay").value, 10);
+  if (!name || !amount || amount <= 0 || !categoryId) return;
+
+  store.addRecurring({ name, type, categoryId, amount, dayOfMonth });
+  e.target.reset();
+  el("#recurringDay").value = "1";
+  populateRecurringCategoryOptions();
+  renderRecurringList();
+}
+
+function renderRecurringList() {
+  const state = store.getState();
+  el("#recurringList").innerHTML = state.recurring.map(r => {
+    const cat = state.categories.find(c => c.id === r.categoryId);
+    return `
+      <li class="category-row">
+        <span class="swatch" style="background:${cat ? cat.color : "#888"}"></span>
+        <span class="cat-name">${r.name} — ${fmt.format(r.amount)} <span class="cat-type">day ${r.dayOfMonth}</span></span>
+        <button data-remove-recurring="${r.id}" class="icon-btn" aria-label="Remove ${r.name}">×</button>
+      </li>`;
+  }).join("") || `<li class="empty">No recurring items yet</li>`;
+
+  el("#recurringList").querySelectorAll("[data-remove-recurring]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      store.removeRecurring(btn.dataset.removeRecurring);
+      renderRecurringList();
+    });
+  });
+}
+
+function renderRecurringBanner() {
+  const pending = store.pendingRecurringForMonth(currentMonth);
+  const banner = el("#recurringBanner");
+  if (pending.length === 0) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+  banner.hidden = false;
+  banner.innerHTML = `
+    <div class="recurring-banner-head">
+      <span>${pending.length} recurring item${pending.length > 1 ? "s" : ""} not added yet this month</span>
+      <button class="btn secondary" id="applyAllRecurringBtn">Add all</button>
+    </div>
+    <ul class="recurring-chip-list">
+      ${pending.map(r => `<li><button class="chip" data-apply-recurring="${r.id}">+ ${r.name} (${fmt.format(r.amount)})</button></li>`).join("")}
+    </ul>`;
+
+  el("#applyAllRecurringBtn").addEventListener("click", () => store.applyAllRecurring(currentMonth));
+  banner.querySelectorAll("[data-apply-recurring]").forEach(btn => {
+    btn.addEventListener("click", () => store.applyRecurring(btn.dataset.applyRecurring, currentMonth));
+  });
+}
+
 function renderCategoryList() {
   const state = store.getState();
   el("#categoryList").innerHTML = state.categories.map(c => `
@@ -93,6 +172,7 @@ function render() {
   if (!state) return;
 
   el("#monthLabel").textContent = monthLabel(currentMonth);
+  renderRecurringBanner();
 
   const totals = store.monthlyTotals(currentMonth);
   el("#totalIncome").textContent = fmt.format(totals.income);
@@ -138,4 +218,5 @@ function render() {
 
   populateCategoryOptions();
   renderCategoryList();
+  renderRecurringList();
 }
