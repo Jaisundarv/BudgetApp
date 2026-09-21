@@ -11,6 +11,15 @@ let currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
 
 const el = sel => document.querySelector(sel);
 const monthLabel = ym => new Date(ym + "-02").toLocaleDateString(CONFIG.LOCALE, { month: "long", year: "numeric" });
+function monthNameOnly(ym) {
+  const name = new Date(ym + "-02").toLocaleDateString(CONFIG.LOCALE, { month: "long" });
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 export function initUI() {
   el("#prevMonth").addEventListener("click", () => shiftMonth(-1));
@@ -23,10 +32,15 @@ export function initUI() {
 
   el("#manageStandardBtn").addEventListener("click", () => {
     populateStandardCategoryOptions();
+    el("#trackingStartInput").value = store.getTrackingStartMonth();
     el("#standardDialog").showModal();
   });
   el("#standardForm").addEventListener("submit", onAddStandardExpense);
+  el("#cancelStandardEditBtn").addEventListener("click", cancelStandardEdit);
   el("#closeStandardBtn").addEventListener("click", () => el("#standardDialog").close());
+  el("#trackingStartInput").addEventListener("change", (e) => {
+    if (e.target.value) store.setTrackingStartMonth(e.target.value);
+  });
 
   store.subscribe(render);
   render();
@@ -57,9 +71,10 @@ function onAddTransaction(e) {
   const categoryId = el("#txCategory").value;
   const type = el("#txType").value;
   const note = el("#txNote").value.trim();
+  const dueDate = el("#txDueDate").value || null;
   if (!amount || amount <= 0 || !categoryId) return;
 
-  store.addTransaction({ date, amount, categoryId, type, note });
+  store.addTransaction({ date, amount, categoryId, type, note, dueDate });
   e.target.reset();
   el("#txDate").value = new Date().toISOString().slice(0, 10);
   populateCategoryOptions();
@@ -87,16 +102,42 @@ function populateStandardCategoryOptions() {
     .join("");
 }
 
+let editingStandardId = null;
+
 function onAddStandardExpense(e) {
   e.preventDefault();
   const name = el("#standardName").value.trim();
   const amount = parseFloat(el("#standardAmount").value);
   const categoryId = el("#standardCategory").value || null;
+  const dueDayRaw = el("#standardDueDay").value;
+  const dueDay = dueDayRaw ? parseInt(dueDayRaw, 10) : null;
   if (!name || !amount || amount <= 0) return;
 
-  store.addStandardExpense({ name, amount, categoryId });
-  e.target.reset();
+  if (editingStandardId) {
+    store.updateStandardExpense(editingStandardId, { name, amount, categoryId, dueDay });
+  } else {
+    store.addStandardExpense({ name, amount, categoryId, dueDay });
+  }
+  cancelStandardEdit();
   renderStandardManageList();
+}
+
+function startStandardEdit(item) {
+  editingStandardId = item.id;
+  el("#standardName").value = item.name;
+  el("#standardAmount").value = item.amount;
+  el("#standardCategory").value = item.categoryId || "";
+  el("#standardDueDay").value = item.dueDay || "";
+  el("#standardSubmitBtn").textContent = "Save changes";
+  el("#cancelStandardEditBtn").hidden = false;
+  el("#standardName").focus();
+}
+
+function cancelStandardEdit() {
+  editingStandardId = null;
+  el("#standardForm").reset();
+  el("#standardSubmitBtn").textContent = "Add standard expense";
+  el("#cancelStandardEditBtn").hidden = true;
 }
 
 function renderStandardManageList() {
@@ -106,13 +147,21 @@ function renderStandardManageList() {
     return `
       <li class="category-row">
         <span class="swatch" style="background:${cat ? cat.color : "#888"}"></span>
-        <span class="cat-name">${s.name} — ${fmt.format(s.amount)}</span>
+        <span class="cat-name">${s.name} — ${fmt.format(s.amount)}${s.dueDay ? ` <span class="cat-type">due ${ordinal(s.dueDay)}</span>` : ""}</span>
+        <button data-edit-standard="${s.id}" class="icon-btn" aria-label="Edit ${s.name}">✎</button>
         <button data-remove-standard="${s.id}" class="icon-btn" aria-label="Remove ${s.name}">×</button>
       </li>`;
   }).join("") || `<li class="empty">No standard expenses set up yet</li>`;
 
+  el("#standardManageList").querySelectorAll("[data-edit-standard]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const item = state.standardExpenses.find(s => s.id === btn.dataset.editStandard);
+      if (item) startStandardEdit(item);
+    });
+  });
   el("#standardManageList").querySelectorAll("[data-remove-standard]").forEach(btn => {
     btn.addEventListener("click", () => {
+      if (editingStandardId === btn.dataset.removeStandard) cancelStandardEdit();
       store.removeStandardExpense(btn.dataset.removeStandard);
       renderStandardManageList();
     });
@@ -122,30 +171,50 @@ function renderStandardManageList() {
 function renderStandardSection() {
   const state = store.getState();
   const items = store.standardExpensesForMonth(currentMonth);
+  const pending = store.pendingCarryForwardForMonth(currentMonth);
   const totals = store.standardExpenseTotals(currentMonth);
 
   el("#standardTotal").textContent = fmt.format(totals.total);
   el("#standardPaidTotal").textContent = fmt.format(totals.paid);
   el("#standardUnpaidTotal").textContent = fmt.format(totals.unpaid);
 
-  el("#standardExpenseList").innerHTML = items.map(item => {
+  const outstandingRow = el("#standardOutstandingRow");
+  if (totals.outstanding > 0) {
+    outstandingRow.hidden = false;
+    el("#standardOutstanding").textContent = fmt.format(totals.outstanding);
+  } else {
+    outstandingRow.hidden = true;
+  }
+
+  const rowHtml = (item, opts) => {
     const cat = state.categories.find(c => c.id === item.categoryId);
+    const key = opts.key;
+    const tag = opts.originMonth
+      ? `<span class="pending-tag">Pending from ${monthNameOnly(opts.originMonth)}</span>`
+      : (item.dueDay ? `<span class="due-tag">Due the ${ordinal(item.dueDay)}</span>` : "");
     return `
-      <li class="standard-row ${item.paid ? "is-paid" : ""}">
+      <li class="standard-row ${item.paid ? "is-paid" : ""} ${opts.originMonth ? "is-pending" : ""}">
         <span class="swatch" style="background:${cat ? cat.color : "#888"}"></span>
-        <span class="standard-name">${item.name}</span>
+        <span class="standard-name">${item.name}${tag}</span>
         <span class="standard-amount">${fmt.format(item.amount)}</span>
-        <button class="paid-toggle ${item.paid ? "paid" : "unpaid"}" data-toggle-standard="${item.id}">
+        <button class="paid-toggle ${item.paid ? "paid" : "unpaid"}" data-toggle-standard="${key}" data-standard-id="${item.id}" data-standard-month="${opts.originMonth || currentMonth}">
           ${item.paid ? "Paid" : "Not paid"}
         </button>
       </li>`;
-  }).join("") || `<li class="empty">No standard expenses set up yet — add some via the "Standard expenses" button above</li>`;
+  };
+
+  const pendingHtml = pending.map(item => rowHtml(item, { key: item.key, originMonth: item.originMonth })).join("");
+  const currentHtml = items.map(item => rowHtml(item, { key: item.id })).join("");
+
+  el("#standardExpenseList").innerHTML = pendingHtml + currentHtml ||
+    `<li class="empty">No standard expenses set up yet — add some via the "Standard expenses" button above</li>`;
 
   el("#standardExpenseList").querySelectorAll("[data-toggle-standard]").forEach(btn => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.toggleStandard;
-      const item = items.find(i => i.id === id);
-      store.setStandardExpensePaid(id, currentMonth, !item.paid);
+      const id = btn.dataset.standardId;
+      const month = btn.dataset.standardMonth;
+      const currentlyPaid = btn.classList.contains("paid");
+      store.setStandardExpensePaid(id, month, !currentlyPaid);
     });
   });
 }
@@ -202,7 +271,7 @@ function render() {
         <span class="swatch" style="background:${cat ? cat.color : "#888"}"></span>
         <span class="tx-main">
           <span class="tx-cat">${cat ? cat.name : "Uncategorized"}</span>
-          <span class="tx-note">${t.note || ""}</span>
+          <span class="tx-note">${t.note || ""}${t.dueDate ? ` <span class="due-tag">Due ${dfmt.format(new Date(t.dueDate))}</span>` : ""}</span>
         </span>
         <span class="tx-date">${dfmt.format(new Date(t.date))}</span>
         <span class="tx-amount ${t.type}">${sign}${fmt.format(t.amount)}</span>

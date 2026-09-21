@@ -6,7 +6,7 @@ export const CONFIG = {
   // including trailing slash.
   REDIRECT_URI: "https://jaisundarv.github.io/BudgetApp/",
   DATA_FILE_PATH: "/budget-data.json",
-  SCHEMA_VERSION: 3,
+  SCHEMA_VERSION: 6,
   CURRENCY: "EUR",
   LOCALE: "nl-NL"
 };
