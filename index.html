@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Budget Tracker</title>
+  <meta name="description" content="Personal monthly budget tracker, synced to Dropbox" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1a7a5b" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <section id="authScreen" class="auth-screen" hidden>
+      <h1>Budget Tracker</h1>
+      <p>Your income, expenses and monthly totals — synced privately to a folder in your own Dropbox. No accounts, no server, just your data.</p>
+      <button id="connectBtn" class="btn">Connect Dropbox</button>
+    </section>
+
+    <div id="errorBanner" hidden></div>
+
+    <section id="appScreen" hidden>
+      <header class="app-header">
+        <h1>Budget</h1>
+        <div class="header-actions">
+          <span id="syncStatus"></span>
+          <button id="manageCategoriesBtn" class="btn secondary">Categories</button>
+          <button id="signOutBtn" class="btn secondary">Sign out</button>
+        </div>
+      </header>
+
+      <div class="month-nav">
+        <button id="prevMonth" aria-label="Previous month">‹</button>
+        <h2 id="monthLabel"></h2>
+        <button id="nextMonth" aria-label="Next month">›</button>
+      </div>
+
+      <div class="totals-row">
+        <div class="total-card income">
+          <div class="label">Income</div>
+          <div class="value" id="totalIncome">—</div>
+        </div>
+        <div class="total-card expense">
+          <div class="label">Expenses</div>
+          <div class="value" id="totalExpense">—</div>
+        </div>
+        <div class="total-card">
+          <div class="label">Balance</div>
+          <div class="value" id="totalBalance">—</div>
+        </div>
+      </div>
+
+      <div class="breakdown-section">
+        <div class="donut-wrap"><svg id="breakdownDonut"></svg></div>
+        <ul id="breakdownLegend"></ul>
+      </div>
+
+      <form id="txForm" class="tx-form">
+        <h3>Add transaction</h3>
+        <div class="type-toggle">
+          <label><input type="radio" name="txTypeRadio" id="typeExpense" value="expense" checked /><span>Expense</span></label>
+          <label><input type="radio" name="txTypeRadio" id="typeIncome" value="income" /><span>Income</span></label>
+        </div>
+        <input type="hidden" id="txType" value="expense" />
+        <div class="form-grid" style="margin-top:10px;">
+          <input type="number" id="txAmount" placeholder="Amount (€)" step="0.01" min="0" required />
+          <select id="txCategory" required></select>
+          <input type="date" id="txDate" class="full" />
+          <input type="text" id="txNote" class="full" placeholder="Note (optional)" />
+        </div>
+        <button type="submit" class="btn">Add</button>
+      </form>
+
+      <section class="tx-list-section">
+        <h3>This month</h3>
+        <ul id="txList"></ul>
+      </section>
+    </section>
+  </div>
+
+  <dialog id="categoriesDialog">
+    <h2>Categories</h2>
+    <ul id="categoryList"></ul>
+    <form id="categoryForm" class="category-form-grid">
+      <input type="text" id="catName" placeholder="Name" required />
+      <select id="catType">
+        <option value="expense">Expense</option>
+        <option value="income">Income</option>
+      </select>
+      <input type="color" id="catColor" value="#6a93c9" />
+      <button type="submit" class="btn">Add</button>
+    </form>
+    <button id="closeCategoriesBtn" class="btn secondary" style="margin-top:12px; width:100%;">Done</button>
+  </dialog>
+
+  <script>
+    // Keep the hidden txType input and the radio toggle in sync.
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll('input[name="txTypeRadio"]').forEach(r => {
+        r.addEventListener("change", () => {
+          document.getElementById("txType").value = r.value;
+          document.getElementById("txType").dispatchEvent(new Event("change"));
+        });
+      });
+      document.getElementById("txDate").value = new Date().toISOString().slice(0, 10);
+    });
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
