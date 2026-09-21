@@ -48,10 +48,6 @@
           <div><span class="label">Paid</span><span id="standardPaidTotal" class="paid-color">—</span></div>
           <div><span class="label">Not paid</span><span id="standardUnpaidTotal" class="unpaid-color">—</span></div>
         </div>
-        <div id="standardOutstandingRow" class="standard-outstanding" hidden>
-          <span class="label">Outstanding from earlier months</span>
-          <span id="standardOutstanding" class="unpaid-color">—</span>
-        </div>
       </section>
 
       <div class="totals-row">
@@ -100,13 +96,7 @@
 
   <dialog id="standardDialog">
     <h2>Standard expenses</h2>
-    <p class="dialog-hint">Fixed monthly bills whose amount doesn't change — rent, electricity, water, insurance. They'll show up automatically every month with a paid/not-paid toggle. A category is optional, just for the spending chart.</p>
-
-    <label class="tracking-start-field">
-      Track pending/carry-forward from
-      <input type="month" id="trackingStartInput" />
-    </label>
-    <p class="dialog-hint">Unpaid bills before this month are never treated as a backlog — this is the floor so old history doesn't flood in as "pending."</p>
+    <p class="dialog-hint">Fixed monthly bills whose amount doesn't change — rent, electricity, water, insurance. They'll show up automatically every month with a checkbox — check it to add that bill as an expense for the current month. A category is optional, just for the spending chart.</p>
 
     <ul id="standardManageList"></ul>
     <form id="standardForm" class="standard-form-grid">

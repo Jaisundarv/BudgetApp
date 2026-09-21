@@ -11,10 +11,6 @@ let currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
 
 const el = sel => document.querySelector(sel);
 const monthLabel = ym => new Date(ym + "-02").toLocaleDateString(CONFIG.LOCALE, { month: "long", year: "numeric" });
-function monthNameOnly(ym) {
-  const name = new Date(ym + "-02").toLocaleDateString(CONFIG.LOCALE, { month: "long" });
-  return name.charAt(0).toUpperCase() + name.slice(1);
-}
 function ordinal(n) {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
@@ -32,15 +28,11 @@ export function initUI() {
 
   el("#manageStandardBtn").addEventListener("click", () => {
     populateStandardCategoryOptions();
-    el("#trackingStartInput").value = store.getTrackingStartMonth();
     el("#standardDialog").showModal();
   });
   el("#standardForm").addEventListener("submit", onAddStandardExpense);
   el("#cancelStandardEditBtn").addEventListener("click", cancelStandardEdit);
   el("#closeStandardBtn").addEventListener("click", () => el("#standardDialog").close());
-  el("#trackingStartInput").addEventListener("change", (e) => {
-    if (e.target.value) store.setTrackingStartMonth(e.target.value);
-  });
 
   store.subscribe(render);
   render();
@@ -171,50 +163,30 @@ function renderStandardManageList() {
 function renderStandardSection() {
   const state = store.getState();
   const items = store.standardExpensesForMonth(currentMonth);
-  const pending = store.pendingCarryForwardForMonth(currentMonth);
   const totals = store.standardExpenseTotals(currentMonth);
 
   el("#standardTotal").textContent = fmt.format(totals.total);
   el("#standardPaidTotal").textContent = fmt.format(totals.paid);
   el("#standardUnpaidTotal").textContent = fmt.format(totals.unpaid);
 
-  const outstandingRow = el("#standardOutstandingRow");
-  if (totals.outstanding > 0) {
-    outstandingRow.hidden = false;
-    el("#standardOutstanding").textContent = fmt.format(totals.outstanding);
-  } else {
-    outstandingRow.hidden = true;
-  }
-
-  const rowHtml = (item, opts) => {
+  const rowHtml = item => {
     const cat = state.categories.find(c => c.id === item.categoryId);
-    const key = opts.key;
-    const tag = opts.originMonth
-      ? `<span class="pending-tag">Pending from ${monthNameOnly(opts.originMonth)}</span>`
-      : (item.dueDay ? `<span class="due-tag">Due the ${ordinal(item.dueDay)}</span>` : "");
+    const tag = item.dueDay ? `<span class="due-tag">Due the ${ordinal(item.dueDay)}</span>` : "";
     return `
-      <li class="standard-row ${item.paid ? "is-paid" : ""} ${opts.originMonth ? "is-pending" : ""}">
+      <li class="standard-row ${item.paid ? "is-paid" : ""}">
+        <input type="checkbox" class="standard-check" ${item.paid ? "checked" : ""} data-standard-id="${item.id}" aria-label="Add ${item.name} to this month" />
         <span class="swatch" style="background:${cat ? cat.color : "#888"}"></span>
         <span class="standard-name">${item.name}${tag}</span>
         <span class="standard-amount">${fmt.format(item.amount)}</span>
-        <button class="paid-toggle ${item.paid ? "paid" : "unpaid"}" data-toggle-standard="${key}" data-standard-id="${item.id}" data-standard-month="${opts.originMonth || currentMonth}">
-          ${item.paid ? "Paid" : "Not paid"}
-        </button>
       </li>`;
   };
 
-  const pendingHtml = pending.map(item => rowHtml(item, { key: item.key, originMonth: item.originMonth })).join("");
-  const currentHtml = items.map(item => rowHtml(item, { key: item.id })).join("");
-
-  el("#standardExpenseList").innerHTML = pendingHtml + currentHtml ||
+  el("#standardExpenseList").innerHTML = items.map(rowHtml).join("") ||
     `<li class="empty">No standard expenses set up yet — add some via the "Standard expenses" button above</li>`;
 
-  el("#standardExpenseList").querySelectorAll("[data-toggle-standard]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.standardId;
-      const month = btn.dataset.standardMonth;
-      const currentlyPaid = btn.classList.contains("paid");
-      store.setStandardExpensePaid(id, month, !currentlyPaid);
+  el("#standardExpenseList").querySelectorAll("[data-standard-id]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      store.setStandardExpensePaid(cb.dataset.standardId, currentMonth, cb.checked);
     });
   });
 }

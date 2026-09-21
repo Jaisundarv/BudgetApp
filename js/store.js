@@ -21,11 +21,7 @@ function uid() {
 function defaultData() {
   return {
     schemaVersion: CONFIG.SCHEMA_VERSION,
-    // trackingStartMonth is a hard floor: nothing before it is ever
-    // treated as pending, no matter what a standard expense's own
-    // createdMonth says. Defaults to the month you started using this,
-    // and you can move it in the Standard Expenses dialog.
-    settings: { currency: CONFIG.CURRENCY, trackingStartMonth: new Date().toISOString().slice(0, 7) },
+    settings: { currency: CONFIG.CURRENCY },
     categories: [
       { id: uid(), name: "Salary", type: "income", color: "#4fb286" },
       { id: uid(), name: "Groceries", type: "expense", color: "#e0a458", monthlyLimit: null },
@@ -40,12 +36,7 @@ function defaultData() {
     // separate from the ad-hoc transactions you log and categorize
     // yourself. A category assignment is optional, only so a paid bill
     // can still show up correctly in the category breakdown chart.
-    standardExpenses: [],
-    // Which standard expenses have been marked paid, per month. Purely
-    // a checklist — it does NOT gate whether the amount counts toward
-    // the month's totals (it always does); it only tracks whether
-    // you've actually paid it yet.
-    standardPayments: []
+    standardExpenses: []
   };
 }
 
@@ -94,45 +85,30 @@ function migrate(data) {
     data.schemaVersion = 5;
   }
   if (data.schemaVersion < 6) {
-    // A global floor for carry-forward, so bills you'd already set up
-    // before this feature existed don't suddenly generate years of
-    // phantom "pending" months. Anchored to right now, i.e. nothing
-    // before today counts as pending — adjustable afterward.
     if (!data.settings) data.settings = { currency: CONFIG.CURRENCY };
-    if (!data.settings.trackingStartMonth) {
-      data.settings.trackingStartMonth = new Date().toISOString().slice(0, 7);
-    }
     data.schemaVersion = 6;
   }
-  return data;
-}
-
-function effectiveStart(item) {
-  const floor = state.settings.trackingStartMonth;
-  if (!item.createdMonth) return floor;
-  return item.createdMonth > floor ? item.createdMonth : floor;
-}
-
-export function getTrackingStartMonth() {
-  return state.settings.trackingStartMonth;
-}
-
-export function setTrackingStartMonth(yearMonth) {
-  state.settings.trackingStartMonth = yearMonth;
-  scheduleSync();
-}
-
-function monthsBetween(startYM, endYMExclusive) {
-  // Every "YYYY-MM" from startYM up to (but not including) endYMExclusive.
-  const months = [];
-  let [y, m] = startYM.split("-").map(Number);
-  const [endY, endM] = endYMExclusive.split("-").map(Number);
-  while (y < endY || (y === endY && m < endM)) {
-    months.push(`${y}-${String(m).padStart(2, "0")}`);
-    m++;
-    if (m > 12) { m = 1; y++; }
+  if (data.schemaVersion < 7) {
+    // Rolled back to the simpler model: "paid" is just whether a
+    // transaction has been added for that bill this month, via the
+    // checkbox. Convert any standalone paid-markers from the
+    // carry-forward experiment into real transactions so nothing is
+    // lost, then drop the now-unused fields' effects.
+    for (const p of data.standardPayments || []) {
+      const item = data.standardExpenses.find(s => s.id === p.standardExpenseId);
+      if (!item) continue;
+      const already = data.transactions.some(t => t.standardExpenseId === item.id && t.date.startsWith(p.yearMonth));
+      if (!already) {
+        data.transactions.push({
+          id: uid(), date: `${p.yearMonth}-01`, amount: item.amount, categoryId: item.categoryId,
+          type: "expense", note: item.name, standardExpenseId: item.id, dueDate: null
+        });
+      }
+    }
+    data.standardPayments = [];
+    data.schemaVersion = 7;
   }
-  return months;
+  return data;
 }
 
 function notify() {
@@ -240,10 +216,10 @@ export function removeCategory(id) {
 
 // ---- Transactions ----
 
-export function addTransaction({ date, amount, categoryId, type, note, dueDate }) {
+export function addTransaction({ date, amount, categoryId, type, note, dueDate, standardExpenseId }) {
   state.transactions.push({
     id: uid(), date, amount: Number(amount), categoryId, type,
-    note: note || "", dueDate: dueDate || null
+    note: note || "", dueDate: dueDate || null, standardExpenseId: standardExpenseId || null
   });
   scheduleSync();
 }
@@ -264,16 +240,15 @@ export function removeTransaction(id) {
 // A standard expense is a bill whose amount doesn't change month to
 // month — rent, electricity, water, insurance. The list itself
 // (name + amount + optional category) is managed once, in the
-// Standard Expenses dialog. Every month it shows up automatically and
-// its full amount always counts toward that month's totals — paid/
-// not-paid is just a checklist of whether you've actually paid it,
-// it doesn't switch the spending on or off.
+// Standard Expenses dialog. Every month it shows up automatically
+// with a checkbox; checking it adds that amount as a transaction for
+// the current month (so it counts toward totals), unchecking removes
+// that transaction again.
 
 export function addStandardExpense({ name, amount, categoryId, dueDay }) {
   state.standardExpenses.push({
     id: uid(), name, amount: Number(amount), categoryId: categoryId || null,
-    dueDay: dueDay ? Math.min(31, Math.max(1, Number(dueDay))) : null,
-    createdMonth: new Date().toISOString().slice(0, 7)
+    dueDay: dueDay ? Math.min(31, Math.max(1, Number(dueDay))) : null
   });
   scheduleSync();
 }
@@ -287,64 +262,40 @@ export function updateStandardExpense(id, patch) {
 
 export function removeStandardExpense(id) {
   state.standardExpenses = state.standardExpenses.filter(s => s.id !== id);
-  state.standardPayments = state.standardPayments.filter(p => p.standardExpenseId !== id);
   scheduleSync();
 }
 
-function isPaidFor(itemId, yearMonth) {
-  return state.standardPayments.some(p => p.standardExpenseId === itemId && p.yearMonth === yearMonth);
-}
-
-// Every standard expense that exists as of this month (i.e. set up in
-// this month or earlier), each annotated with whether it's been
-// marked paid FOR THIS MONTH specifically.
+// Every standard expense, annotated with whether it's already been
+// added (checked) for this specific month.
 export function standardExpensesForMonth(yearMonth) {
-  return state.standardExpenses
-    .filter(item => effectiveStart(item) <= yearMonth)
-    .map(item => ({ ...item, paid: isPaidFor(item.id, yearMonth) }));
-}
-
-// Bills that were still unpaid in some earlier month and so follow you
-// forward — each tagged with the month they originally came from, e.g.
-// "Pending from September". Stays visible, under its original tag,
-// every month until it's finally marked paid.
-export function pendingCarryForwardForMonth(yearMonth) {
-  const rows = [];
-  for (const item of state.standardExpenses) {
-    const start = effectiveStart(item);
-    if (start >= yearMonth) continue;
-    for (const m of monthsBetween(start, yearMonth)) {
-      if (!isPaidFor(item.id, m)) {
-        rows.push({ ...item, originMonth: m, paid: false, key: `${item.id}_${m}` });
-      }
-    }
-  }
-  return rows.sort((a, b) => a.originMonth.localeCompare(b.originMonth));
+  return state.standardExpenses.map(item => {
+    const tx = state.transactions.find(t => t.standardExpenseId === item.id && t.date.startsWith(yearMonth));
+    return { ...item, paid: !!tx, transactionId: tx ? tx.id : null };
+  });
 }
 
 export function setStandardExpensePaid(id, yearMonth, paid) {
-  const already = state.standardPayments.find(p => p.standardExpenseId === id && p.yearMonth === yearMonth);
-  if (paid && !already) {
-    state.standardPayments.push({ id: uid(), standardExpenseId: id, yearMonth });
-  } else if (!paid && already) {
-    state.standardPayments = state.standardPayments.filter(p => p.id !== already.id);
-  } else {
-    return;
+  const item = state.standardExpenses.find(s => s.id === id);
+  if (!item) return;
+  const existing = state.transactions.find(t => t.standardExpenseId === id && t.date.startsWith(yearMonth));
+
+  if (paid && !existing) {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = today.startsWith(yearMonth) ? today : `${yearMonth}-01`;
+    addTransaction({
+      date, amount: item.amount, categoryId: item.categoryId, type: "expense",
+      note: item.name, standardExpenseId: item.id
+    });
+  } else if (!paid && existing) {
+    removeTransaction(existing.id);
   }
-  scheduleSync();
 }
 
-// total/paid/unpaid cover only THIS month's own bills (this is what
-// counts toward the month's overall Expenses total). outstanding is
-// the separate, older backlog carried forward from previous months —
-// deliberately not added into total/expense figures, since it was
-// already counted in the month it originated, to avoid double-counting.
 export function standardExpenseTotals(yearMonth) {
   const items = standardExpensesForMonth(yearMonth);
   const total = items.reduce((s, i) => s + i.amount, 0);
   const paid = items.filter(i => i.paid).reduce((s, i) => s + i.amount, 0);
-  const outstanding = pendingCarryForwardForMonth(yearMonth).reduce((s, i) => s + i.amount, 0);
-  return { total, paid, unpaid: total - paid, outstanding };
+  return { total, paid, unpaid: total - paid };
 }
 
 // ---- Derived helpers ----
@@ -353,15 +304,10 @@ export function transactionsForMonth(yearMonth) {
   return state.transactions.filter(t => t.date.startsWith(yearMonth));
 }
 
-// Overall totals combine the standard (fixed) expenses for the month
-// with whatever ad-hoc transactions you've logged — a standard expense
-// always counts, whether or not it's been marked paid yet.
 export function monthlyTotals(yearMonth) {
   const txs = transactionsForMonth(yearMonth);
   const income = txs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const adhocExpense = txs.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-  const standardExpense = standardExpenseTotals(yearMonth).total;
-  const expense = adhocExpense + standardExpense;
+  const expense = txs.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   return { income, expense, balance: income - expense };
 }
 
@@ -370,11 +316,6 @@ export function categoryBreakdown(yearMonth, type = "expense") {
   const byCategory = new Map();
   for (const t of txs) {
     byCategory.set(t.categoryId, (byCategory.get(t.categoryId) || 0) + t.amount);
-  }
-  if (type === "expense") {
-    for (const item of standardExpensesForMonth(yearMonth)) {
-      byCategory.set(item.categoryId, (byCategory.get(item.categoryId) || 0) + item.amount);
-    }
   }
   return [...byCategory.entries()]
     .map(([categoryId, total]) => ({
